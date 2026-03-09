@@ -1,0 +1,7 @@
+# Entornos de desarrollo y producción
+# Ignorar archivos de configuración de entornos
+.env
+
+# Extensiones de archivos
+*.log
+*.txt
