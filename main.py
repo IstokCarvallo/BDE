@@ -6,9 +6,19 @@ from datetime import datetime, timedelta
 siete = bcchapi.Siete(file="credenciales.txt")
 
 # Fecha actual
-fecha_hoy = datetime.today().strftime("%Y-%m-%d")
-# desde = (fecha_hoy - timedelta(days=10)).strftime("%Y-%m-%d")
-# hasta = fecha_hoy.strftime("%Y-%m-%d")
+hoy = datetime.today()
+# hoy = datetime.strptime('2026-02-28', "%Y-%m-%d")
+
+# ajustar si es fin de semana
+if hoy.weekday() == 5:  # sábado
+    fecha_consulta = hoy - timedelta(days=1)
+elif hoy.weekday() == 6:  # domingo
+    fecha_consulta = hoy - timedelta(days=2)
+else:
+    fecha_consulta = hoy
+
+desde = (fecha_consulta - timedelta(days=7)).strftime("%Y-%m-%d")
+hasta = fecha_consulta.strftime("%Y-%m-%d")
 
 # Series del Banco Central
 series = {
@@ -22,25 +32,31 @@ series = {
 paridades = {}
 
 for nombre, codigo in series.items():
+    try:
+        datos = siete.cuadro(
+            series=[codigo],
+            desde=desde,
+            hasta=hasta
+        )
 
-    datos = siete.cuadro(
-        series=[codigo],
-        desde=fecha_hoy,
-        hasta=fecha_hoy
-    )
+        if not datos.empty:
+            paridades[nombre] = datos.iloc[-1, 0]
+        else:
+            paridades[nombre] = "Sin dato disponible"
 
-    if not datos.empty:
-        paridades[nombre] = datos.iloc[0, 0]
-    else:
-        paridades[nombre] = "Sin dato disponible"
+    except Exception as e:
+        paridades[nombre] = None
+        print(f"Error consultando {nombre}: {e}")
 
 # UTM desde API pública
 try:
-    r = requests.get("https://mindicador.cl/api/utm")
+    r = requests.get("https://mindicador.cl/api/utm", timeout=10)
+    r.raise_for_status()
     paridades["UTM"] = r.json()["serie"][0]["valor"]
-except:
-    paridades["UTM"] = None
+except Exception as e:
+    print("Error consultando UTM:", e)
+    paridades["UTM"] = "Sin dato disponible"
 
-print("Paridades para", fecha_hoy)
+print("Paridades para", fecha_consulta)
 for k, v in paridades.items():
     print(f"{k}: {v}")
