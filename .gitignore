@@ -2,6 +2,9 @@
 # Ignorar archivos de configuración de entornos
 .env
 
+# Carpeta de logs
+logs/
+
 # Extensiones de archivos
 *.log
 *.txt
