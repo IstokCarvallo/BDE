@@ -41,11 +41,11 @@ hasta = fecha_consulta.strftime("%Y-%m-%d")
 series = {
     "Dolar": "F073.TCO.PRE.Z.D",
     "Euro": "F072.CLP.EUR.N.O.D",
-    # "Yuan": "F072.CLP.CNY.N.O.D",
+    "Yuan": "F072.CLP.CNY.N.O.D",
     "UF": "F073.UFF.PRE.Z.D",
-    # "Libra": "F072.CLP.GBP.N.O.D",
-    "Yuan_USD": "F072.CNY.USD.N.O.D",
-    "Libra_USD": "F072.GBP.USD.N.O.D"
+    "Libra": "F072.CLP.GBP.N.O.D"
+    # "Yuan_USD": "F072.CNY.USD.N.O.D",
+    # "Libra_USD": "F072.GBP.USD.N.O.D"
 }
 
 paridades = {}
@@ -86,8 +86,8 @@ monedas = {
     "UF":2,
     "UTM":3,
     "Euro":4,
-    "Libra_USD":5,
-    "Yuan_USD":6
+    "Libra":5,
+    "Yuan":6
 }
 
 # construir batch
