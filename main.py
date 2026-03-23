@@ -105,7 +105,7 @@ siete = bcchapi.Siete(file="credenciales.txt")
 
 # Fecha actual
 hoy = datetime.today()
-# hoy = datetime.strptime('2026-02-28', "%Y-%m-%d")
+# hoy = datetime.strptime('2026-03-21', "%Y-%m-%d")
 
 # ajustar si es fin de semana
 if hoy.weekday() == 5:  # sábado
@@ -177,7 +177,7 @@ monedas = {
 
 # construir batch
 rows = []
-fecha_db = fecha_consulta.date()
+fecha_db = hoy.date()
 
 for nombre, valor in paridades.items():
 
