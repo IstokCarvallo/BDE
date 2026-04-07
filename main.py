@@ -68,7 +68,9 @@ def enviar_mail(asunto, html):
     SMTP_USER = "sendmail@rioblanco.net"
     SMTP_PASS = "Rh32NSene_%654"
 
-    destinatarios = ["istok.carvallo@rioblanco.net"]
+    destinatarios = ["istok.carvallo@rioblanco.net",
+                    "lino.escobedo@rioblanco.net",
+                    "romina.espinoza@rioblanco.net"]
 
     msg = MIMEText(html, "html")
     msg["Subject"] = asunto
