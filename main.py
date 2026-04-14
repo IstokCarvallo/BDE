@@ -2,11 +2,13 @@ import bcchapi
 import requests
 import pyodbc
 import logging
+import smtplib
 import os
 from datetime import datetime, timedelta
-import smtplib
 from email.mime.text import MIMEText
+from dotenv import load_dotenv
 
+load_dotenv()
 
 def normalizar_error(nombre, e):
 
@@ -63,12 +65,12 @@ def construir_html_alertas(alertas, total_registros):
 
 def enviar_mail(asunto, html):
 
-    SMTP_SERVER = "smtp.office365.com"
-    SMTP_PORT = 587
-    SMTP_USER = "sendmail@rioblanco.net"
-    SMTP_PASS = "Rh32NSene_%654"
+    SMTP_SERVER = os.getenv("SMTP_SERVER")
+    SMTP_PORT = int(os.getenv("SMTP_PORT"))
+    SMTP_USER = os.getenv("SMTP_USER")
+    SMTP_PASS = os.getenv("SMTP_PASS")
 
-    destinatarios = ["istok.carvallo@rioblanco.net"]
+    destinatarios = os.getenv("EMAIL_TO").split(",")
 
     msg = MIMEText(html, "html")
     msg["Subject"] = asunto
@@ -155,7 +157,7 @@ for nombre, codigo in series.items():
 
 # UTM desde API pública
 try:
-    r = requests.get("https://mindicador.cl/api/utm", timeout=10)
+    r = requests.get("https://mindicador.cl/api/utm", timeout=20)
     r.raise_for_status()
     paridades["UTM"] = r.json()["serie"][0]["valor"]
     logging.info("Consultando UTM API")
@@ -197,12 +199,13 @@ conn, cursor = None, None
 try:
     # conexión SQL Server
     conn = pyodbc.connect(
-        "DRIVER={ODBC Driver 18 for SQL Server};"
-        "TrustServerCertificate=yes;"
-        "SERVER=192.168.20.37;"
-        "DATABASE=Produccion_2025;"
-        "UID=istok.carvallo;"
-        "PWD=prag"
+        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+        f"SERVER={os.getenv('DB1_SERVER')};"
+        f"DATABASE={os.getenv('DB1_NAME')};"
+        f"UID={os.getenv('DB1_USER')};"
+        f"PWD={os.getenv('DB1_PASS')};"
+        f"TrustServerCertificate=yes;",
+        autocommit=True
     )
 
     logging.info("Conexión a SQL Server establecida")
@@ -229,7 +232,7 @@ try:
 
     cursor.executemany(sql, rows_insert)
 
-    conn.commit()
+    # conn.commit()
 
     logging.info(f"Insert ejecutado correctamente. Registros insertados: {len(rows_insert)}")
 
@@ -237,12 +240,12 @@ try:
     if len(rows_insert) > 0:
         try:
             cursor.execute("EXEC dbo.FProc_CargaParidad_FICO")
-            conn.commit()
+            # conn.commit()
             logging.info("SP dbo.FProc_CargaParidad_FICO ejecutado correctamente")
         except Exception as e:
             logging.error(f"Error ejecutando SP: {e}")
             alertas.append(normalizar_error("SP FProc_CargaParidad_FICO", e))
-            
+
 except Exception as e:
     logging.error(f"Error de conexión o ejecución SQL Server: {e}")
     logging.warning("Sugerencia: verificar servidor, credenciales o conectividad de red")
