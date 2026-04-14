@@ -68,9 +68,7 @@ def enviar_mail(asunto, html):
     SMTP_USER = "sendmail@rioblanco.net"
     SMTP_PASS = "Rh32NSene_%654"
 
-    destinatarios = ["istok.carvallo@rioblanco.net",
-                    "lino.escobedo@rioblanco.net",
-                    "romina.espinoza@rioblanco.net"]
+    destinatarios = ["istok.carvallo@rioblanco.net"]
 
     msg = MIMEText(html, "html")
     msg["Subject"] = asunto
@@ -234,6 +232,17 @@ try:
     conn.commit()
 
     logging.info(f"Insert ejecutado correctamente. Registros insertados: {len(rows_insert)}")
+
+    # ejecutar SP solo si hay datos
+    if len(rows_insert) > 0:
+        try:
+            cursor.execute("EXEC dbo.FProc_CargaParidad_FICO")
+            conn.commit()
+            logging.info("SP dbo.FProc_CargaParidad_FICO ejecutado correctamente")
+        except Exception as e:
+            logging.error(f"Error ejecutando SP: {e}")
+            alertas.append(normalizar_error("SP FProc_CargaParidad_FICO", e))
+            
 except Exception as e:
     logging.error(f"Error de conexión o ejecución SQL Server: {e}")
     logging.warning("Sugerencia: verificar servidor, credenciales o conectividad de red")
