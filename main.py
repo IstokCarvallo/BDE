@@ -4,6 +4,7 @@ import pyodbc
 import logging
 import smtplib
 import os
+import sys
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
@@ -11,7 +12,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def normalizar_error(nombre, e):
-
     msg = str(e)
 
     if "SSLError" in msg:
@@ -30,7 +30,6 @@ def normalizar_error(nombre, e):
 
 
 def construir_html_alertas(alertas, total_registros):
-
     items = "".join([f"<li>{a}</li>" for a in alertas])
 
     html = f"""
@@ -64,7 +63,6 @@ def construir_html_alertas(alertas, total_registros):
 
 
 def enviar_mail(asunto, html):
-
     SMTP_SERVER = os.getenv("SMTP_SERVER")
     SMTP_PORT = int(os.getenv("SMTP_PORT"))
     SMTP_USER = os.getenv("SMTP_USER")
@@ -97,10 +95,16 @@ log_file = f"logs/paridad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
     filename=log_file,
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.FileHandler(log_file, encoding="utf-8"),
+        logging.StreamHandler()
+    ]
 )
 
 logging.info("Inicio ejecución script paridades")
+logging.info(f"Python executable: {sys.executable}")
+logging.info(f"Directorio actual: {os.getcwd()}")
 
 # Crear una instancia de la clase Siete utilizando el archivo de credenciales
 siete = bcchapi.Siete(file="credenciales.txt")
@@ -251,8 +255,11 @@ except Exception as e:
     logging.warning("Sugerencia: verificar servidor, credenciales o conectividad de red")
     alertas.append(normalizar_error("SQL Server", e))
 finally:
-    cursor.close()
-    conn.close()
+    if cursor:
+        cursor.close()
+
+    if conn:
+        conn.close()
 
 if len(rows) == 0:
     alertas.append("No se obtuvieron registros válidos para insertar")
@@ -264,5 +271,7 @@ if alertas:
     enviar_mail("ALERTA ETL Paridades BCCh", html)
 
     logging.warning("Correo de alerta enviado")
+    sys.exit(1)
 
 logging.info("Ejecución finalizada correctamente")
+sys.exit(0)
