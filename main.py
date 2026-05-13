@@ -93,12 +93,11 @@ os.makedirs("logs", exist_ok=True)
 log_file = f"logs/paridad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
 logging.basicConfig(
-    filename=log_file,
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.FileHandler(log_file, encoding="utf-8"),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
 
