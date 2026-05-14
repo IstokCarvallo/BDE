@@ -271,6 +271,9 @@ if alertas:
 
     logging.warning("Correo de alerta enviado")
     sys.exit(1)
+    raise RuntimeError("ETL falló - ver logs")
+else:
+    sys.exit(0)
 
 logging.info("Ejecución finalizada correctamente")
-sys.exit(0)
+
