@@ -269,11 +269,12 @@ if alertas:
 
     enviar_mail("ALERTA ETL Paridades BCCh", html)
 
-    logging.warning("Correo de alerta enviado")
-    sys.exit(1)
+    logging.warning("Correo de alerta enviado")    
     raise RuntimeError("ETL falló - ver logs")
+    sys.exit(1)
 else:
+    logging.info("Ejecución finalizada correctamente")
     sys.exit(0)
 
-logging.info("Ejecución finalizada correctamente")
+
 
