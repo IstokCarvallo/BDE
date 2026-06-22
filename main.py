@@ -1,15 +1,185 @@
-import bcchapi
-import requests
-import pyodbc
-import logging
-import smtplib
-import os
-import sys
+import bcchapi, requests, pyodbc, logging,smtplib
+import os, time, sys 
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
 
 load_dotenv()
+
+EXEC_ID = (f"{datetime.now():%Y%m%d_%H%M%S}_{os.getpid()}")
+
+def ejecutar_con_reintento(funcion, nombre, intentos=3, espera=300):
+    inicio_total = time.time()
+
+    ultimo_resultado = None
+    ultimas_alertas = []
+
+    for intento in range(1, intentos + 1):
+
+        inicio_intento = time.time()
+        logging.info("=" * 60)
+        logging.info(f"{nombre} - intento {intento}/{intentos}")
+
+        try:
+            resultado, alertas_local = funcion()
+            duracion = round(time.time() - inicio_intento, 2)
+            logging.info(f"{nombre} duración intento: {duracion}s")
+            ultimo_resultado = resultado
+
+            if len(alertas_local) == 0:
+                duracion_total = round(time.time() - inicio_total, 2)
+                logging.info(f"{nombre} completado correctamente")
+                logging.info(f"{nombre} completado en intento {intento}")
+                logging.info(f"{nombre} duración total: {duracion_total}s")
+                logging.info("=" * 60)
+
+                return ultimo_resultado, []
+
+            ultimas_alertas = alertas_local
+
+            logging.warning(f"{nombre} terminó con {len(alertas_local)} alerta(s)")
+
+            for alerta in alertas_local:
+                logging.warning(alerta)
+
+            if intento < intentos:
+                logging.info(f"Esperando {espera} segundos antes del siguiente intento")
+                time.sleep(espera)
+
+        except Exception as e:
+            logging.exception(f"Error inesperado en {nombre}: {e}")
+            ultimas_alertas = [str(e)]
+
+            if intento < intentos:
+                time.sleep(espera)
+
+    duracion_total = round(time.time() - inicio_total, 2)
+
+    logging.error(f"{nombre} agotó todos los intentos")
+    logging.error(f"Duración total etapa: {duracion_total}s")
+    logging.info("=" * 60)
+
+    return ultimo_resultado, ultimas_alertas
+
+def cargar_bcch():
+    alertas = []
+    paridades = {}
+
+    for nombre, codigo in series.items():
+        try:
+            datos = siete.cuadro(
+                series=[codigo],
+                desde=desde,
+                hasta=hasta
+            )
+
+            if not datos.empty:
+                paridades[nombre] = datos.iloc[-1, 0]
+            else:
+                paridades[nombre] = "Sin dato disponible"
+                alertas.append(f"No se encontró dato BCCh para {nombre}")
+
+            logging.info(f"Consultando serie {nombre}")
+
+        except Exception as e:
+            paridades[nombre] = None
+            alertas.append(normalizar_error(f"BCCh {nombre}", e ))
+            logging.error(f"Error consultando {nombre}: {e}")
+
+    return paridades, alertas
+
+def cargar_utm():
+    alertas = []
+    try:
+        r = requests.get("https://mindicador.cl/api/utm", timeout=20)
+        r.raise_for_status()
+        valor = r.json()["serie"][0]["valor"]
+        logging.info("Consultando UTM API")
+        return valor, []
+
+    except Exception as e:
+        logging.error(f"Error consultando UTM API: {e}")
+        alertas.append(normalizar_error("API UTM", e))
+        return None, alertas
+    
+def cargar_sql(rows):
+    alertas = []
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = pyodbc.connect(
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+            f"SERVER={os.getenv('DB1_SERVER')};"
+            f"DATABASE={os.getenv('DB1_NAME')};"
+            f"UID={os.getenv('DB1_USER')};"
+            f"PWD={os.getenv('DB1_PASS')};"
+            f"TrustServerCertificate=yes;",
+            autocommit=True
+        )
+
+        logging.info("Conexión a SQL Server establecida")
+        cursor = conn.cursor()
+        cursor.fast_executemany = True
+
+        sql = """
+        INSERT INTO dbo.Paridad (Moneda, Fecha, Paridad)
+        SELECT ?, ?, ?
+        WHERE NOT EXISTS
+        (
+            SELECT 1
+            FROM dbo.Paridad
+            WHERE Moneda = ?
+            AND Fecha = ?
+        )
+        """
+
+        rows_insert = [
+            (
+                moneda,
+                fecha,
+                valor,
+                moneda,
+                fecha
+            )
+
+            for moneda, fecha, valor in rows
+        ]
+
+        if len(rows_insert) == 0:
+            alertas.append("No existen registros válidos para insertar")
+            return False, alertas
+
+        cursor.executemany(sql, rows_insert)
+        logging.info(f"Insert ejecutado correctamente. Registros insertados: {len(rows_insert)}")
+
+        cursor.execute("EXEC dbo.FProc_CargaParidad_FICO")
+        logging.info("SP dbo.FProc_CargaParidad_FICO ejecutado correctamente")
+        return True, []
+
+    except Exception as e:
+
+        logging.error(
+            f"Error SQL Server: {e}"
+        )
+
+        alertas.append(
+            normalizar_error(
+                "SQL Server",
+                e
+            )
+        )
+
+        return False, alertas
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 
 def normalizar_error(nombre, e):
     msg = str(e)
@@ -38,6 +208,7 @@ def construir_html_alertas(alertas, total_registros):
 
     <h2 style="color:#b30000;">⚠️ Alerta ETL Paridades</h2>
 
+    <p><b>ID ejecución:</b> {EXEC_ID}</p>
     <p><b>Fecha ejecución:</b> {datetime.now()}</p>
     <p><b>Registros válidos obtenidos:</b> {total_registros}</p>
 
@@ -90,7 +261,7 @@ def enviar_mail(asunto, html):
 os.makedirs("logs", exist_ok=True)
 
 # nombre archivo log
-log_file = f"logs/paridad_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+log_file = (f"logs/paridad_{EXEC_ID}.log")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,6 +272,8 @@ logging.basicConfig(
     ]
 )
 
+logging.info("=" * 60)
+logging.info(f"EXEC_ID={EXEC_ID}")
 logging.info("Inicio ejecución script paridades")
 logging.info(f"Python executable: {sys.executable}")
 logging.info(f"Directorio actual: {os.getcwd()}")
@@ -134,41 +307,27 @@ series = {
     # "Libra_USD": "F072.GBP.USD.N.O.D"
 }
 
-alertas = []
-paridades = {}
-
-for nombre, codigo in series.items():
-    try:
-        datos = siete.cuadro(
-            series=[codigo],
-            desde=desde,
-            hasta=hasta
-        )
-
-        if not datos.empty:
-            paridades[nombre] = datos.iloc[-1, 0]
-        else:
-            paridades[nombre] = "Sin dato disponible"
-            alertas.append(f"No se encontró dato BCCh para {nombre}")
-
-        logging.info(f"Consultando serie {nombre} ({codigo})")
-
-    except Exception as e:
-        paridades[nombre] = None
-        alertas.append(normalizar_error(f"BCCh {nombre}", e))
-        logging.error(f"Error consultando {nombre}: {e}")
+paridades, alertas = ejecutar_con_reintento(
+    cargar_bcch,
+    nombre="Carga BCCh",
+    intentos=3,
+    espera=300
+)
 
 # UTM desde API pública
-try:
-    r = requests.get("https://mindicador.cl/api/utm", timeout=20)
-    r.raise_for_status()
-    paridades["UTM"] = r.json()["serie"][0]["valor"]
-    logging.info("Consultando UTM API")
-except Exception as e:
+utm, alertas_utm = ejecutar_con_reintento(
+    cargar_utm,
+    nombre="Carga UTM",
+    intentos=3,
+    espera=300
+)
+
+alertas.extend(alertas_utm)
+
+if utm:
+    paridades["UTM"] = utm
+else:
     paridades["UTM"] = "Sin dato disponible"
-    alertas.append(normalizar_error("API UTM", e))
-    logging.error(f"Error consultando UTM API: {e}")
-    logging.warning("Sugerencia: verificar conectividad o disponibilidad de https://mindicador.cl")
 
 # mapeo monedas
 monedas = {
@@ -185,7 +344,6 @@ rows = []
 fecha_db = hoy.date()
 
 for nombre, valor in paridades.items():
-
     if valor is None or valor == "Sin dato disponible":
         continue
 
@@ -198,83 +356,27 @@ for nombre, valor in paridades.items():
     )
 
 logging.info(f"Registros totales obtenidos: {len(rows)}")
-conn, cursor = None, None
-try:
-    # conexión SQL Server
-    conn = pyodbc.connect(
-        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-        f"SERVER={os.getenv('DB1_SERVER')};"
-        f"DATABASE={os.getenv('DB1_NAME')};"
-        f"UID={os.getenv('DB1_USER')};"
-        f"PWD={os.getenv('DB1_PASS')};"
-        f"TrustServerCertificate=yes;",
-        autocommit=True
-    )
 
-    logging.info("Conexión a SQL Server establecida")
+sql_ok, alertas_sql = ejecutar_con_reintento(
+    lambda: cargar_sql(rows),
+    nombre="Carga SQL",
+    intentos=3,
+    espera=300
+)
 
-    cursor = conn.cursor()
-    cursor.fast_executemany = True
-
-    sql = """
-    INSERT INTO dbo.Paridad (Moneda, Fecha, Paridad)
-    SELECT ?, ?, ?
-    WHERE NOT EXISTS
-    (
-        SELECT 1
-        FROM dbo.Paridad
-        WHERE Moneda = ?
-        AND Fecha = ?
-    )
-    """
-
-    rows_insert = [
-        (moneda, fecha, valor, moneda, fecha)
-        for moneda, fecha, valor in rows
-    ]
-
-    cursor.executemany(sql, rows_insert)
-
-    # conn.commit()
-
-    logging.info(f"Insert ejecutado correctamente. Registros insertados: {len(rows_insert)}")
-
-    # ejecutar SP solo si hay datos
-    if len(rows_insert) > 0:
-        try:
-            cursor.execute("EXEC dbo.FProc_CargaParidad_FICO")
-            # conn.commit()
-            logging.info("SP dbo.FProc_CargaParidad_FICO ejecutado correctamente")
-        except Exception as e:
-            logging.error(f"Error ejecutando SP: {e}")
-            alertas.append(normalizar_error("SP FProc_CargaParidad_FICO", e))
-
-except Exception as e:
-    logging.error(f"Error de conexión o ejecución SQL Server: {e}")
-    logging.warning("Sugerencia: verificar servidor, credenciales o conectividad de red")
-    alertas.append(normalizar_error("SQL Server", e))
-finally:
-    if cursor:
-        cursor.close()
-
-    if conn:
-        conn.close()
-
-if len(rows) == 0:
-    alertas.append("No se obtuvieron registros válidos para insertar")
+alertas.extend(alertas_sql)
 
 if alertas:
-
     html = construir_html_alertas(alertas, len(rows))
-
-    enviar_mail("ALERTA ETL Paridades BCCh", html)
-
-    logging.warning("Correo de alerta enviado")    
-    raise RuntimeError("ETL falló - ver logs")
+    enviar_mail(f"[{EXEC_ID}] ALERTA ETL Paridades BCCh", html)
+    logging.warning("Correo de alerta enviado")
     sys.exit(1)
 else:
+    logging.info(f"""Resumen ejecución
+                    -----------------
+                    Paridades obtenidas: {len(paridades)}
+                    Registros SQL: {len(rows)}
+                    Alertas: {len(alertas)}
+                    """)
     logging.info("Ejecución finalizada correctamente")
     sys.exit(0)
-
-
-
